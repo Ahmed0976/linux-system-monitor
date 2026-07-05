@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+
 # Colors
 
 
@@ -17,13 +18,12 @@ NC='\033[0m'
 log_action() {
     local action="$1"
 
-    printf "%s | %s | %s\n" \
-        "$(date '+%Y-%m-%d %H:%M:%S')" \
-        "$(whoami)" \
-        "$action" >> "$LOGS_DIR/monitor.log"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') | $(whoami) | $action" >> "$LOGS_DIR/monitor.log"
 }
 
-# Print Header
+
+# Header
+
 
 print_header() {
     local title="$1"
@@ -34,14 +34,16 @@ print_header() {
     echo -e "${CYAN}======================================${NC}"
 }
 
+
 # System Information
+
 
 system_information() {
 
     log_action "System Information"
 
     local hostname
-    local user
+    local username
     local current_date
     local uptime_info
     local os
@@ -50,7 +52,7 @@ system_information() {
     local memory
 
     hostname=$(hostname)
-    user=$(whoami)
+    username=$(whoami)
     current_date=$(date)
     uptime_info=$(uptime -p)
     os=$(grep '^PRETTY_NAME=' /etc/os-release | cut -d= -f2 | tr -d '"')
@@ -61,17 +63,18 @@ system_information() {
     print_header "System Information"
 
     printf "%-18s %s\n" "Hostname:" "$hostname"
-    printf "%-18s %s\n" "User:" "$user"
+    printf "%-18s %s\n" "User:" "$username"
     printf "%-18s %s\n" "Date:" "$current_date"
     printf "%-18s %s\n" "Uptime:" "$uptime_info"
     printf "%-18s %s\n" "OS:" "$os"
     printf "%-18s %s\n" "Kernel:" "$kernel"
     printf "%-18s %s\n" "CPU:" "$cpu"
     printf "%-18s %s\n" "Total Memory:" "$memory"
+}
 
-    echo 
 
 # CPU Monitor
+
 
 cpu_monitor() {
 
@@ -84,6 +87,7 @@ cpu_monitor() {
     model=$(lscpu | awk -F: '/Model name/ {print $2}' | xargs)
     architecture=$(uname -m)
     cores=$(nproc)
+
     usage=$(top -bn1 | awk -F',' '/Cpu/ {
         gsub("%id","",$4)
         printf "%.1f",100-$4
@@ -117,7 +121,11 @@ cpu_monitor() {
 
 memory_monitor() {
 
-    local total used free percent status
+    local total
+    local used
+    local free
+    local percent
+    local status
 
     read total used free percent <<< "$(free -h | awk '/^Mem:/ {
         printf "%s %s %s %.0f",$2,$3,$4,($3/$2)*100
@@ -148,10 +156,13 @@ memory_monitor() {
 
 # Disk Monitor
 
-
 disk_monitor() {
 
-    local total used available percent status
+    local total
+    local used
+    local available
+    local percent
+    local status
 
     read total used available percent <<< "$(df -h / | awk 'NR==2{
         gsub("%","",$5)
@@ -169,24 +180,27 @@ disk_monitor() {
     printf "%-18s %s\n" "Total Disk:" "$total"
     printf "%-18s %s\n" "Used Disk:" "$used"
     printf "%-18s %s\n" "Available:" "$available"
-    printf "%-18s %s%%\n" "Usage:" "$percent"
+    printf "%-18s %s%%\n" "Current Usage:" "$percent"
+    printf "%-18s %s%%\n" "Threshold:" "$DISK_THRESHOLD"
 
     if [[ "$status" == "WARNING" ]]; then
-        printf "%-18s ${YELLOW}%s${NC}\n" "Status:" "$status"
+        echo -e "${YELLOW}Status:${NC} WARNING"
+        echo -e "${YELLOW}Disk usage is above threshold!${NC}"
     else
-        printf "%-18s ${GREEN}%s${NC}\n" "Status:" "$status"
+        echo -e "${GREEN}Status:${NC} NORMAL"
+        echo -e "${GREEN}Disk usage is normal.${NC}"
     fi
 
     log_action "Disk $status (${percent}%)"
 }
 
-
-
 # Network Information
 
 network_information() {
 
-    local ip gateway internet
+    local ip
+    local gateway
+    local internet
 
     ip=$(hostname -I | awk '{print $1}')
     gateway=$(ip route | awk '/default/ {print $3}')
@@ -204,60 +218,12 @@ network_information() {
     printf "%-18s %s\n" "Gateway:" "$gateway"
     printf "%-18s %s\n" "Internet:" "$internet"
 
-    log_action "Network Status ($internet)"
+    log_action "Network $internet"
 }
 
-
-# Threshold Settings
-
-show_thresholds() {
-
-    log_action "Threshold Settings"
-
-    print_header "Threshold Settings"
-
-    printf "%-18s %s%%\n" "CPU:" "$CPU_THRESHOLD"
-    printf "%-18s %s%%\n" "Memory:" "$MEMORY_THRESHOLD"
-    printf "%-18s %s%%\n" "Disk:" "$DISK_THRESHOLD"
-}
-
-
-# Disk Usage Check
-
-
-check_disk_usage() {
-
-    local usage
-    local status
-
-    usage=$(df / | awk 'NR==2{
-        gsub("%","")
-        print $5
-    }')
-
-    if (( usage >= DISK_THRESHOLD )); then
-        status="WARNING"
-    else
-        status="NORMAL"
-    fi
-
-    print_header "Disk Usage Check"
-
-    printf "%-18s %s%%\n" "Current Usage:" "$usage"
-    printf "%-18s %s%%\n" "Threshold:" "$DISK_THRESHOLD"
-
-    if [[ "$status" == "WARNING" ]]; then
-        echo -e "${YELLOW}WARNING: Disk usage is above threshold!${NC}"
-    else
-        echo -e "${GREEN}Disk usage is normal.${NC}"
-    fi
-
-    log_action "Disk $status (${usage}%)"
-}
 
 
 # Generate Report
-
 
 generate_report() {
 
@@ -267,7 +233,7 @@ generate_report() {
 
     {
         echo "======================================"
-        echo "      Linux System Report"
+        echo "        Linux System Report"
         echo "======================================"
         echo
 
@@ -279,7 +245,8 @@ generate_report() {
         local cpu_model cpu_usage cpu_status
 
         cpu_model=$(lscpu | awk -F: '/Model name/ {print $2}' | xargs)
-        cpu_usage=$(top -bn1 | awk -F',' '/Cpu/ {
+
+        cpu_usage=$(top -bn1 | awk -F',' '/Cpu/{
             gsub("%id","",$4)
             printf "%.1f",100-$4
         }')
@@ -298,7 +265,7 @@ generate_report() {
 
         local mem_total mem_used mem_free mem_usage mem_status
 
-        read mem_total mem_used mem_free mem_usage <<< "$(free -h | awk '/^Mem:/ {
+        read mem_total mem_used mem_free mem_usage <<< "$(free -h | awk '/^Mem:/{
             printf "%s %s %s %.0f",$2,$3,$4,($3/$2)*100
         }')"
 
@@ -315,8 +282,7 @@ generate_report() {
         printf "%-15s %s%%\n" "Usage:" "$mem_usage"
         printf "%-15s %s\n" "Status:" "$mem_status"
         echo
-
-        local disk_total disk_used disk_avail disk_usage disk_status
+		 local disk_total disk_used disk_avail disk_usage disk_status
 
         read disk_total disk_used disk_avail disk_usage <<< "$(df -h / | awk 'NR==2{
             gsub("%","",$5)
@@ -363,7 +329,9 @@ generate_report() {
 
     echo
     echo -e "${GREEN}Report generated successfully.${NC}"
-    echo "Location: $report_file"
+    echo "Location : $report_file"
 
     log_action "Report generated ($report_file)"
 }
+
+

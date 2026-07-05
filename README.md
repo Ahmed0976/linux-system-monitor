@@ -11,8 +11,6 @@ A Bash-based Linux monitoring tool that provides real-time system information, r
 - Memory Monitoring
 - Disk Monitoring
 - Network Information
-- Threshold Configuration
-- Disk Usage Check
 - Report Generation
 - Logging System
 - Colored Terminal Output
@@ -167,6 +165,29 @@ logs/monitor.log
 ```
 
 ---
+---
+## Screenshots
+
+### System Monitor
+## Screenshots
+
+### System Monitor
+
+![System Monitor](assets/screenshots/system-monitor.png)
+
+### Report Generation
+
+![Report Generation](assets/screenshots/report-generation.png)
+
+### Sample Report
+
+![Sample Report](assets/screenshots/sample-report.png)
+
+### Project Structure
+
+![Project Structure](assets/screenshots/project-structure.png)
+---
+
 
 ## Future Improvements
 

@@ -3,49 +3,68 @@
 # Linux System Monitor
 # Ahmed Saied
 
-start_time=$(date +%s.%N)
 source "$(dirname "$0")/functions.sh"
 source "$(dirname "$0")/config.conf"
 
+mkdir -p "$LOGS_DIR"
+mkdir -p "$REPORTS_DIR"
+
+START_TIME=$(date +%s.%N)
+
 case "$1" in
---all)
-	system_information
-	cpu_monitor
-	memory_monitor
-	disk_monitor
-	network_information
-	generate_report
-	;;
---cpu)
-	cpu_monitor
-	;;
---memory)
-	memory_monitor
-	;;
---disk)
-	disk_monitor
-	;;
---network)
-	network_information
-	;;
---report)
-	generate_report
-	;;
-*)
-	echo "Usage:"
-	echo "./monitor.sh --all"
-	echo "./monitor.sh --cpu"
-	echo "./monitor.sh --memory"
-	echo "./monitor.sh --disk"
-	echo "./monitor.sh --network"
-	echo "./monitor.sh --report"
+
+    --all)
+        system_information
+        cpu_monitor
+        memory_monitor
+        disk_monitor
+        network_information
+        ;;
+
+    --cpu)
+        cpu_monitor
+        ;;
+
+    --memory)
+        memory_monitor
+        ;;
+
+    --disk)
+        disk_monitor
+        ;;
+
+    --network)
+        network_information
+        ;;
+
+    --report)
+        END_TIME=$(date +%s.%N)
+        EXECUTION_TIME=$(awk "BEGIN {print $END_TIME - $START_TIME}")
+        generate_report
+        ;;
+
+    *)
+        echo "Usage:"
+        echo "./monitor.sh --all"
+        echo "./monitor.sh --cpu"
+        echo "./monitor.sh --memory"
+        echo "./monitor.sh --disk"
+        echo "./monitor.sh --network"
+        echo "./monitor.sh --check-disk"
+        echo "./monitor.sh --report"
+        exit 1
 	;;
 esac
 
-end_time=$(date +%s.%N)
-execution_time=$(echo "$end_time - $start_time" | bc)
+if [[ "$1" != "--report" ]]; then
+    END_TIME=$(date +%s.%N)
+    EXECUTION_TIME=$(awk "BEGIN {print $END_TIME - $START_TIME}")
+fi
 
-echo
-echo "======================================"
-printf "Execution Time : %.3f seconds\n" "$execution_time"
-echo "======================================"
+END_TIME=$(date +%s.%N)
+
+EXECUTION_TIME=$(awk "BEGIN {print $END_TIME - $START_TIME}")
+
+printf "\n======================================\n"
+printf "Execution Time : %.3f seconds\n" "$EXECUTION_TIME"
+printf "======================================\n"
