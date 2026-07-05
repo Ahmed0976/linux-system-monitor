@@ -1,308 +1,369 @@
 #!/usr/bin/env bash
 
+# Colors
+
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
+
+# Logging
+
+
 log_action() {
-	local action="$1"
+    local action="$1"
 
-	mkdir -p "$LOGS_DIR"
-
-	echo "$(date '+%Y-%m-%d %H:%M:%S') | $(whoami) | $action" >>"$LOGS_DIR/monitor.log"
+    printf "%s | %s | %s\n" \
+        "$(date '+%Y-%m-%d %H:%M:%S')" \
+        "$(whoami)" \
+        "$action" >> "$LOGS_DIR/monitor.log"
 }
+
+# Print Header
+
+print_header() {
+    local title="$1"
+
+    echo
+    echo -e "${CYAN}======================================${NC}"
+    printf "${BLUE}%-38s${NC}\n" "$title"
+    echo -e "${CYAN}======================================${NC}"
+}
+
+# System Information
 
 system_information() {
-	log_action "System Information"
-	echo "==============================="
-	echo "          System Information "
-	echo "==============================="
 
-	echo "Hostname : $(hostname)"
-	echo "User     : $(whoami)"
-	echo "Date     : $(date)"
-	echo "Uptime   : $(uptime -p)"
-	echo "OS       : $(grep PRETTY_NAME /etc/os-release | cut -d= -f2 | tr -d '"')"
-	echo "Kernel   : $(uname -r)"
-	echo "CPU      : $(lscpu | grep 'Model name' | cut -d: -f2 | xargs)"
-	echo "Total Memory  : $(free -h | awk '/Mem:/ {print $2}')"
-	echo
-	echo "=============================="
-}
+    log_action "System Information"
+
+    local hostname
+    local user
+    local current_date
+    local uptime_info
+    local os
+    local kernel
+    local cpu
+    local memory
+
+    hostname=$(hostname)
+    user=$(whoami)
+    current_date=$(date)
+    uptime_info=$(uptime -p)
+    os=$(grep '^PRETTY_NAME=' /etc/os-release | cut -d= -f2 | tr -d '"')
+    kernel=$(uname -r)
+    cpu=$(lscpu | awk -F: '/Model name/ {print $2}' | xargs)
+    memory=$(free -h | awk '/^Mem:/ {print $2}')
+
+    print_header "System Information"
+
+    printf "%-18s %s\n" "Hostname:" "$hostname"
+    printf "%-18s %s\n" "User:" "$user"
+    printf "%-18s %s\n" "Date:" "$current_date"
+    printf "%-18s %s\n" "Uptime:" "$uptime_info"
+    printf "%-18s %s\n" "OS:" "$os"
+    printf "%-18s %s\n" "Kernel:" "$kernel"
+    printf "%-18s %s\n" "CPU:" "$cpu"
+    printf "%-18s %s\n" "Total Memory:" "$memory"
+
+    echo 
+
+# CPU Monitor
 
 cpu_monitor() {
-	local model
-	local architecture
-	local cores
-	local usage
 
-	model=$(lscpu | awk -F: '/Model name/ {print $2}' | xargs)
-	architecture=$(uname -m)
-	cores=$(nproc)
+    local model
+    local architecture
+    local cores
+    local usage
+    local status
 
-	usage=$(top -bn1 | awk '/Cpu\(s\)/ {print 100 - $8}')
+    model=$(lscpu | awk -F: '/Model name/ {print $2}' | xargs)
+    architecture=$(uname -m)
+    cores=$(nproc)
+    usage=$(top -bn1 | awk -F',' '/Cpu/ {
+        gsub("%id","",$4)
+        printf "%.1f",100-$4
+    }')
 
-	echo
-	echo -e "${CYAN}======================================${NC}"
-	echo -e "${BLUE}           CPU Monitor${NC}"
-	echo -e "${CYAN}======================================${NC}"
+    if (($(echo "$usage >= $CPU_THRESHOLD" | bc -l))); then
+        status="WARNING"
+    else
+        status="NORMAL"
+    fi
 
-	echo "Model        : $model"
-	echo "Architecture : $architecture"
-	echo "CPU Cores    : $cores"
-	printf "CPU Usage    : %.1f%%\n" "$usage"
+    print_header "CPU Monitor"
 
-	if (($(echo "$usage >= $CPU_THRESHOLD" | bc -l))); then
-		echo -e "Status       : ${YELLOW}WARNING${NC}"
-		log_action "CPU WARNING (${usage}%)"
-	else
-		echo -e "Status       : ${GREEN}NORMAL${NC}"
-		log_action "CPU NORMAL (${usage}%)"
-	fi
+    printf "%-18s %s\n" "Model:" "$model"
+    printf "%-18s %s\n" "Architecture:" "$architecture"
+    printf "%-18s %s\n" "CPU Cores:" "$cores"
+    printf "%-18s %.1f%%\n" "CPU Usage:" "$usage"
 
-	echo "======================================"
+    if [[ "$status" == "WARNING" ]]; then
+        printf "%-18s ${YELLOW}%s${NC}\n" "Status:" "$status"
+    else
+        printf "%-18s ${GREEN}%s${NC}\n" "Status:" "$status"
+    fi
+
+    log_action "CPU $status (${usage}%)"
 }
+
+
+# Memory Monitor
+
 
 memory_monitor() {
-	local total
-	local used
-	local free
-	local percent
 
-	total=$(free -h | awk '/^Mem:/ {print $2}')
-	used=$(free -h | awk '/^Mem:/ {print $3}')
-	free=$(free -h | awk '/^Mem:/ {print $4}')
+    local total used free percent status
 
-	percent=$(free | awk '/^Mem:/ {printf "%.0f", ($3/$2)*100}')
+    read total used free percent <<< "$(free -h | awk '/^Mem:/ {
+        printf "%s %s %s %.0f",$2,$3,$4,($3/$2)*100
+    }')"
 
-	echo
-	echo -e "${CYAN}======================================${NC}"
-	echo -e "${BLUE}           Memory Monitor${NC}"
-	echo -e "${CYAN}======================================${NC}"
+    if (( percent >= MEMORY_THRESHOLD )); then
+        status="WARNING"
+    else
+        status="NORMAL"
+    fi
 
-	echo "Total Memory : $total"
-	echo "Used Memory  : $used"
-	echo "Free Memory  : $free"
-	echo "Usage        : ${percent}%"
+    print_header "Memory Monitor"
 
-	if ((percent >= MEMORY_THRESHOLD)); then
-		echo -e "Status       : ${YELLOW}WARNING${NC}"
-		log_action "Memory WARNING (${percent}%)"
-	else
-		echo -e "Status       : ${GREEN}NORMAL${NC}"
-		log_action "Memory NORMAL (${percent}%)"
-	fi
+    printf "%-18s %s\n" "Total Memory:" "$total"
+    printf "%-18s %s\n" "Used Memory:" "$used"
+    printf "%-18s %s\n" "Free Memory:" "$free"
+    printf "%-18s %s%%\n" "Usage:" "$percent"
 
-	echo "======================================"
+    if [[ "$status" == "WARNING" ]]; then
+        printf "%-18s ${YELLOW}%s${NC}\n" "Status:" "$status"
+    else
+        printf "%-18s ${GREEN}%s${NC}\n" "Status:" "$status"
+    fi
+
+    log_action "Memory $status (${percent}%)"
 }
+
+
+# Disk Monitor
+
 
 disk_monitor() {
-	local total
-	local used
-	local available
-	local percent
 
-	total=$(df -h / | awk 'NR==2 {print $2}')
-	used=$(df -h / | awk 'NR==2 {print $3}')
-	available=$(df -h / | awk 'NR==2 {print $4}')
-	percent=$(df / | awk 'NR==2 {gsub("%",""); print $5}')
+    local total used available percent status
 
-	echo
-	echo -e "${CYAN}======================================${NC}"
-	echo -e "${BLUE}           Disk Monitor${NC}"
-	echo -e "${CYAN}======================================${NC}"
+    read total used available percent <<< "$(df -h / | awk 'NR==2{
+        gsub("%","",$5)
+        print $2,$3,$4,$5
+    }')"
 
-	echo "Total Disk     : $total"
-	echo "Used Disk      : $used"
-	echo "Available Disk : $available"
-	echo "Usage          : ${percent}%"
+    if (( percent >= DISK_THRESHOLD )); then
+        status="WARNING"
+    else
+        status="NORMAL"
+    fi
 
-	if ((percent >= DISK_THRESHOLD)); then
-		echo -e "Status       : ${YELLOW}WARNING${NC}"
-		log_action "Disk WARNING (${percent}%)"
-	else
-		echo -e "Status       : ${GREEN}NORMAL${NC}"
-		log_action "Disk NORMAL (${percent}%)"
-	fi
+    print_header "Disk Monitor"
 
-	echo "======================================"
+    printf "%-18s %s\n" "Total Disk:" "$total"
+    printf "%-18s %s\n" "Used Disk:" "$used"
+    printf "%-18s %s\n" "Available:" "$available"
+    printf "%-18s %s%%\n" "Usage:" "$percent"
+
+    if [[ "$status" == "WARNING" ]]; then
+        printf "%-18s ${YELLOW}%s${NC}\n" "Status:" "$status"
+    else
+        printf "%-18s ${GREEN}%s${NC}\n" "Status:" "$status"
+    fi
+
+    log_action "Disk $status (${percent}%)"
 }
+
+
+
+# Network Information
 
 network_information() {
-	local ip
-	local gateway
 
-	ip=$(hostname -I | awk '{print $1}')
-	gateway=$(ip route | awk '/default/ {print $3}')
+    local ip gateway internet
 
-	echo
-	echo "=============================="
-	echo "     Network Information"
-	echo "=============================="
+    ip=$(hostname -I | awk '{print $1}')
+    gateway=$(ip route | awk '/default/ {print $3}')
 
-	echo "Hostname : $(hostname)"
-	echo "IP Address : $ip"
-	echo "Gateway : $gateway"
+    if ping -c 1 -W 1 "$PING_HOST" >/dev/null 2>&1; then
+        internet="Connected"
+    else
+        internet="Disconnected"
+    fi
 
-	if ping -c 1 -W 1 8.8.8.8 >/dev/null 2>&1; then
-		echo "Internet : Connected"
-		log_action "Internet Connected"
-	else
-		echo "Internet : Disconnected"
-		log_action "Internet Disconnected"
-	fi
+    print_header "Network Information"
 
-	echo "=============================="
+    printf "%-18s %s\n" "Hostname:" "$(hostname)"
+    printf "%-18s %s\n" "IP Address:" "$ip"
+    printf "%-18s %s\n" "Gateway:" "$gateway"
+    printf "%-18s %s\n" "Internet:" "$internet"
+
+    log_action "Network Status ($internet)"
 }
+
+
+# Threshold Settings
 
 show_thresholds() {
-	log_action "Thresholds Information"
-	echo
-	echo "=============================="
-	echo "      Threshold Settings"
-	echo "=============================="
 
-	echo "CPU Threshold    : $CPU_THRESHOLD%"
-	echo "Memory Threshold : $MEMORY_THRESHOLD%"
-	echo "Disk Threshold   : $DISK_THRESHOLD%"
+    log_action "Threshold Settings"
 
-	echo "=============================="
+    print_header "Threshold Settings"
+
+    printf "%-18s %s%%\n" "CPU:" "$CPU_THRESHOLD"
+    printf "%-18s %s%%\n" "Memory:" "$MEMORY_THRESHOLD"
+    printf "%-18s %s%%\n" "Disk:" "$DISK_THRESHOLD"
 }
+
+
+# Disk Usage Check
+
 
 check_disk_usage() {
-	log_action "Disk usage Information"
-	local usage
 
-	usage=$(df / | awk 'NR==2 {gsub("%",""); print $5}')
+    local usage
+    local status
 
-	echo
-	echo "=============================="
-	echo "      Disk Usage Check"
-	echo "=============================="
+    usage=$(df / | awk 'NR==2{
+        gsub("%","")
+        print $5
+    }')
 
-	echo "Current Disk Usage : ${usage}%"
-	echo "Threshold          : ${DISK_THRESHOLD}%"
+    if (( usage >= DISK_THRESHOLD )); then
+        status="WARNING"
+    else
+        status="NORMAL"
+    fi
 
-	if ((usage >= DISK_THRESHOLD)); then
-		echo "WARNING: Disk usage is above threshold!"
-		log_action "WARNING: Disk usage ${usage}%"
-	else
-		echo "Disk usage is normal."
-		log_action "Disk usage normal ${usage}%"
-	fi
+    print_header "Disk Usage Check"
 
-	echo "=============================="
+    printf "%-18s %s%%\n" "Current Usage:" "$usage"
+    printf "%-18s %s%%\n" "Threshold:" "$DISK_THRESHOLD"
+
+    if [[ "$status" == "WARNING" ]]; then
+        echo -e "${YELLOW}WARNING: Disk usage is above threshold!${NC}"
+    else
+        echo -e "${GREEN}Disk usage is normal.${NC}"
+    fi
+
+    log_action "Disk $status (${usage}%)"
 }
+
+
+# Generate Report
+
 
 generate_report() {
 
-	local report_file
-	report_file="$REPORTS_DIR/report_$(date +%Y%m%d_%H%M%S).txt"
+    local report_file
 
-	mkdir -p "$REPORTS_DIR"
+    report_file="$REPORTS_DIR/report_$(date +%Y%m%d_%H%M%S).txt"
 
-	{
-		echo "======================================"
-		echo "      Linux System Report"
-		echo "======================================"
-		echo
+    {
+        echo "======================================"
+        echo "      Linux System Report"
+        echo "======================================"
+        echo
 
-		echo "Date      : $(date)"
-		echo "Hostname  : $(hostname)"
-		echo "User      : $(whoami)"
-		echo
+        printf "%-15s %s\n" "Date:" "$(date)"
+        printf "%-15s %s\n" "Hostname:" "$(hostname)"
+        printf "%-15s %s\n" "User:" "$(whoami)"
+        echo
 
-		echo "--------------- CPU -----------------"
+        local cpu_model cpu_usage cpu_status
 
-		local cpu_model cpu_usage cpu_status
+        cpu_model=$(lscpu | awk -F: '/Model name/ {print $2}' | xargs)
+        cpu_usage=$(top -bn1 | awk -F',' '/Cpu/ {
+            gsub("%id","",$4)
+            printf "%.1f",100-$4
+        }')
 
-		cpu_model=$(lscpu | awk -F: '/Model name/ {print $2}' | xargs)
-		cpu_usage=$(top -bn1 | awk -F',' '/Cpu/ {gsub("%id","",$4); print int(100-$4)}')
+        if (($(echo "$cpu_usage >= $CPU_THRESHOLD" | bc -l))); then
+            cpu_status="WARNING"
+        else
+            cpu_status="NORMAL"
+        fi
 
-		if ((cpu_usage >= CPU_THRESHOLD)); then
-			cpu_status="WARNING"
-		else
-			cpu_status="NORMAL"
-		fi
+        echo "--------------- CPU -----------------"
+        printf "%-15s %s\n" "Model:" "$cpu_model"
+        printf "%-15s %.1f%%\n" "Usage:" "$cpu_usage"
+        printf "%-15s %s\n" "Status:" "$cpu_status"
+        echo
 
-		echo "Model     : $cpu_model"
-		echo "Usage     : ${cpu_usage}%"
-		echo "Status    : $cpu_status"
-		echo
+        local mem_total mem_used mem_free mem_usage mem_status
 
-		echo "------------- Memory ----------------"
-
-		local mem_total mem_used mem_free mem_usage mem_status
-
-		read mem_total mem_used mem_free mem_usage <<<"$(free -h | awk '/^Mem:/ {
-            printf "%s %s %s %.0f", $2, $3, $4, ($3/$2)*100
+        read mem_total mem_used mem_free mem_usage <<< "$(free -h | awk '/^Mem:/ {
+            printf "%s %s %s %.0f",$2,$3,$4,($3/$2)*100
         }')"
 
-		if ((mem_usage >= MEMORY_THRESHOLD)); then
-			mem_status="WARNING"
-		else
-			mem_status="NORMAL"
-		fi
+        if (( mem_usage >= MEMORY_THRESHOLD )); then
+            mem_status="WARNING"
+        else
+            mem_status="NORMAL"
+        fi
 
-		echo "Total     : $mem_total"
-		echo "Used      : $mem_used"
-		echo "Free      : $mem_free"
-		echo "Usage     : ${mem_usage}%"
-		echo "Status    : $mem_status"
-		echo
+        echo "------------- Memory ----------------"
+        printf "%-15s %s\n" "Total:" "$mem_total"
+        printf "%-15s %s\n" "Used:" "$mem_used"
+        printf "%-15s %s\n" "Free:" "$mem_free"
+        printf "%-15s %s%%\n" "Usage:" "$mem_usage"
+        printf "%-15s %s\n" "Status:" "$mem_status"
+        echo
 
-		echo "-------------- Disk -----------------"
+        local disk_total disk_used disk_avail disk_usage disk_status
 
-		local disk_total disk_used disk_avail disk_usage disk_status
-
-		read disk_total disk_used disk_avail disk_usage <<<"$(df -h / | awk 'NR==2{
+        read disk_total disk_used disk_avail disk_usage <<< "$(df -h / | awk 'NR==2{
             gsub("%","",$5)
             print $2,$3,$4,$5
         }')"
 
-		if ((disk_usage >= DISK_THRESHOLD)); then
-			disk_status="WARNING"
-		else
-			disk_status="NORMAL"
-		fi
+        if (( disk_usage >= DISK_THRESHOLD )); then
+            disk_status="WARNING"
+        else
+            disk_status="NORMAL"
+        fi
 
-		echo "Total     : $disk_total"
-		echo "Used      : $disk_used"
-		echo "Available : $disk_avail"
-		echo "Usage     : ${disk_usage}%"
-		echo "Status    : $disk_status"
-		echo
+        echo "-------------- Disk -----------------"
+        printf "%-15s %s\n" "Total:" "$disk_total"
+        printf "%-15s %s\n" "Used:" "$disk_used"
+        printf "%-15s %s\n" "Available:" "$disk_avail"
+        printf "%-15s %s%%\n" "Usage:" "$disk_usage"
+        printf "%-15s %s\n" "Status:" "$disk_status"
+        echo
 
-		echo "------------ Network ----------------"
+        local ip gateway internet
 
-		local ip gateway internet
+        ip=$(hostname -I | awk '{print $1}')
+        gateway=$(ip route | awk '/default/ {print $3}')
 
-		ip=$(hostname -I | awk '{print $1}')
-		gateway=$(ip route | awk '/default/ {print $3}')
+        if ping -c 1 -W 1 "$PING_HOST" >/dev/null 2>&1; then
+            internet="Connected"
+        else
+            internet="Disconnected"
+        fi
 
-		if ping -c 1 -W 1 8.8.8.8 >/dev/null 2>&1; then
-			internet="Connected"
-		else
-			internet="Disconnected"
-		fi
+        echo "------------ Network ----------------"
+        printf "%-15s %s\n" "IP:" "$ip"
+        printf "%-15s %s\n" "Gateway:" "$gateway"
+        printf "%-15s %s\n" "Internet:" "$internet"
+        echo
 
-		echo "IP        : $ip"
-		echo "Gateway   : $gateway"
-		echo "Internet  : $internet"
-		echo
+        echo "======================================"
+        printf "Execution Time : %.3f seconds\n" "$EXECUTION_TIME"
+        echo "Generated by Linux System Monitor"
+        echo "======================================"
 
-		echo "======================================"
-		printf "Execution Time : %.3f seconds\n" "$EXECUTION_TIME"
-		echo "Generated by Linux System Monitor"
-		echo "======================================"
+    } > "$report_file"
 
-	} >"$report_file"
+    echo
+    echo -e "${GREEN}Report generated successfully.${NC}"
+    echo "Location: $report_file"
 
-	echo
-	echo "Report generated successfully."
-	echo "Location: $report_file"
-
-	log_action "Report generated: $report_file"
+    log_action "Report generated ($report_file)"
 }
